@@ -23,6 +23,7 @@ use Magento\Framework\UrlInterface;
 use Magento\Store\Model\ScopeInterface;
 use Magento\Store\Model\StoreManagerInterface;
 use DevBera\CmsLinkToMenu\Model\LinkTypes;
+use Magento\Cms\Api\GetPageByIdentifierInterface;
 
 class MenuLinkManagement implements MenuLinkManagementInterface
 {
@@ -75,6 +76,8 @@ class MenuLinkManagement implements MenuLinkManagementInterface
      */
     private $logger;
 
+    protected GetPageByIdentifierInterface $getPageByIdentifier;
+
     public function __construct(
         NodeFactory $nodeFactory,
         PageRepositoryInterface $pageRepository,
@@ -84,7 +87,8 @@ class MenuLinkManagement implements MenuLinkManagementInterface
         SearchCriteriaBuilder $searchCriteriaBuilder,
         FilterBuilder $filterBuilder,
         Processor  $processor,
-        \Psr\Log\LoggerInterface $logger
+        \Psr\Log\LoggerInterface $logger,
+        GetPageByIdentifierInterface $getPageByIdentifier
     ) {
         $this->logger = $logger;
         $this->filterBuilder = $filterBuilder;
@@ -95,6 +99,7 @@ class MenuLinkManagement implements MenuLinkManagementInterface
         $this->nodeFactory = $nodeFactory;
         $this->pageRepository = $pageRepository;
         $this->processor = $processor;
+        $this->getPageByIdentifier = $getPageByIdentifier;
     }
 
     public function addLinks($subject, $position = 'left')
@@ -209,45 +214,17 @@ class MenuLinkManagement implements MenuLinkManagementInterface
     }
     private function getFindCmsPageList($links)
     {
-        $cmsPagesIdentifier = [];
         $result = [];
-
         foreach ($links as $link) {
-            if ($link['link_type'] == 1) {
-                $cmsPagesIdentifier[] = $link['page_id'];
-            }
-        }
-        array_unique($cmsPagesIdentifier);
-
-        $this->searchCriteriaBuilder->addFilters(
-            [
-                $this->filterBuilder
-                    ->setField('identifier')
-                    ->setConditionType('in')
-                    ->setValue($cmsPagesIdentifier)
-                    ->create(),
-            ]
-        );
-
-        $this->searchCriteriaBuilder->addFilters(
-            [
-                $this->filterBuilder
-                    ->setField('is_active')
-                    ->setConditionType('eq')
-                    ->setValue(true)
-                    ->create(),
-            ]
-        );
-
-        $this->searchCriteriaBuilder->setCurrentPage(1)->setPageSize(count($cmsPagesIdentifier));
-
-        $searchCriteria = $this->searchCriteriaBuilder->create();
-        $pages = $this->pageRepository->getList($searchCriteria);
-
-        if ($pages->getTotalCount() >0) {
-            $items = $pages->getItems();
-            foreach ($items as $page) {
-                $result[$page->getIdentifier()] =  $page;
+            if ($link['link_type'] == 1 && !isset($result[$link['page_id']])) {
+                try{
+                    $result[$link['page_id']] = $this->getPageByIdentifier->execute(
+                        $link['page_id'],
+                        $this->storeManager->getStore()->getId()
+                    );
+                }catch(\Magento\Framework\Exception\NoSuchEntityException $e){
+                    // fail silently
+                }
             }
         }
         return $result;
